@@ -8,7 +8,7 @@ use common::counter::hardware_accumulator::HwMeasurementAcc;
 use common::types::DeferredBehavior;
 use parking_lot::RwLock;
 use segment::common::operation_error::{OperationError, OperationResult};
-use segment::data_types::segment_record::SegmentRecordRaw;
+use segment::data_types::segment_record::{RawPayloadFormat, SegmentRecordRaw};
 use segment::entry::ReadSegmentEntry;
 use segment::types::{PointIdType, SeqNumberType, WithPayload, WithVector};
 
@@ -148,6 +148,8 @@ pub fn retrieve_raw_blocking(
         points,
         with_payload,
         with_vector,
+        // Reading the payload as its stored blob is opt-in, and no caller opts in yet.
+        RawPayloadFormat::Parsed,
         is_stopped,
         hw_measurement_acc,
         deferred_behavior,
@@ -155,11 +157,13 @@ pub fn retrieve_raw_blocking(
 }
 
 /// Byte-blob analogue of [`retrieve_over`]. See [`retrieve_raw_blocking`].
+#[allow(clippy::too_many_arguments)]
 pub fn retrieve_raw_over<R: ReadSegmentEntry + ?Sized>(
     segments: Vec<Arc<RwLock<R>>>,
     points: &[PointIdType],
     with_payload: &WithPayload,
     with_vector: &WithVector,
+    payload_format: RawPayloadFormat,
     is_stopped: &AtomicBool,
     hw_measurement_acc: HwMeasurementAcc,
     deferred_behavior: DeferredBehavior,
@@ -198,6 +202,7 @@ pub fn retrieve_raw_over<R: ReadSegmentEntry + ?Sized>(
                 &newer_version_points,
                 with_payload,
                 with_vector,
+                payload_format,
                 &hw_counter,
                 is_stopped,
                 deferred_behavior,

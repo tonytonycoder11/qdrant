@@ -27,6 +27,7 @@ use crate::data_types::facets::{FacetParams, FacetValue};
 use crate::data_types::named_vectors::NamedVectors;
 use crate::data_types::order_by::OrderBy;
 use crate::data_types::query_context::QueryContext;
+use crate::data_types::segment_record::RawPayloadFormat;
 use crate::data_types::vectors::{
     DEFAULT_VECTOR_NAME, MultiDenseVectorInternal, QueryVector, VectorInternal, VectorRef,
     only_default_multi_vector, only_default_vector,
@@ -684,6 +685,7 @@ fn test_retrieve_raw_dense_bytes() {
             &[7.into()],
             &WithPayload::default(),
             &true.into(),
+            RawPayloadFormat::Parsed,
             &hw_counter,
             &is_stopped,
             DeferredBehavior::VisibleOnly,
@@ -752,6 +754,7 @@ fn test_retrieve_raw_multivec_bytes() {
             &[4.into()],
             &WithPayload::default(),
             &true.into(),
+            RawPayloadFormat::Parsed,
             &hw_counter,
             &is_stopped,
             DeferredBehavior::VisibleOnly,
@@ -817,6 +820,7 @@ fn test_retrieve_raw_sparse_bytes() {
             &[7.into()],
             &WithPayload::default(),
             &true.into(),
+            RawPayloadFormat::Parsed,
             &hw_counter,
             &is_stopped,
             DeferredBehavior::VisibleOnly,
@@ -843,6 +847,7 @@ fn retrieve_raw_vector(segment: &Segment, point_id: PointIdType, name: &str) -> 
             &[point_id],
             &WithPayload::default(),
             &true.into(),
+            RawPayloadFormat::Parsed,
             &hw_counter,
             &is_stopped,
             DeferredBehavior::VisibleOnly,

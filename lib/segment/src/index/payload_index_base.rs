@@ -150,6 +150,16 @@ pub trait PayloadIndexRead {
         callback: impl FnMut(U, Payload) -> OperationResult<()>,
         hw_counter: &HardwareCounterCell,
     ) -> OperationResult<()>;
+
+    /// Byte-blob analogue of [`Self::read_payloads`]: hands the callback each
+    /// payload in its stored encoding, skipping the parse. `None` for points
+    /// that have no payload stored.
+    fn read_payload_bytes<P: AccessPattern, U: common::universal_io::UserData>(
+        &self,
+        point_ids: impl Iterator<Item = (U, PointOffsetType)>,
+        callback: impl FnMut(U, Option<&[u8]>) -> OperationResult<()>,
+        hw_counter: &HardwareCounterCell,
+    ) -> OperationResult<()>;
 }
 
 /// Trait for payload index with mutating operations.

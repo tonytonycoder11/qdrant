@@ -439,7 +439,15 @@ impl From<SegmentRecordRaw> for PointStructRawPersisted {
             id,
             vectors,
             payload,
+            payload_raw,
         } = record;
+
+        // No caller asks `retrieve_raw` for the byte form of the payload yet; carrying
+        // the blob onwards lands together with the sender that puts it on the wire.
+        debug_assert!(
+            payload_raw.is_none(),
+            "raw payload blob has no consumer yet"
+        );
 
         Self {
             id,
@@ -455,7 +463,15 @@ impl PointStructRawPersisted {
             id,
             vectors,
             payload,
+            payload_raw,
         } = segment_record;
+
+        // Comparing a stored blob against a parsed payload would need a parse; the
+        // sync read asks for the parsed form, so there is nothing to compare here yet.
+        debug_assert!(
+            payload_raw.is_none(),
+            "raw payload blob has no consumer yet"
+        );
 
         if &self.id != id {
             return false;

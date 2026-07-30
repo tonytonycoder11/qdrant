@@ -72,6 +72,26 @@ impl PayloadStorageRead for InMemoryPayloadStorage {
         Ok(())
     }
 
+    fn read_payload_bytes<P: AccessPattern, U: common::universal_io::UserData>(
+        &self,
+        point_offsets: impl Iterator<Item = (U, PointOffsetType)>,
+        mut callback: impl FnMut(U, Option<&[u8]>) -> OperationResult<()>,
+        _hw_counter: &HardwareCounterCell, // No measurements for in memory storage
+    ) -> OperationResult<()> {
+        for (user_data, point_offset) in point_offsets {
+            // Nothing is stored in encoded form here, so the blob has to be
+            // produced on the fly, in the same encoding the on-disk storages use.
+            let bytes = self
+                .payload
+                .get(&point_offset)
+                .map(serde_json::to_vec)
+                .transpose()?;
+            callback(user_data, bytes.as_deref())?;
+        }
+
+        Ok(())
+    }
+
     fn get_storage_size_bytes(&self) -> OperationResult<usize> {
         let mut estimated_size = 0;
         for (_p_id, val) in &self.payload {

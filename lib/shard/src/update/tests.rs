@@ -87,6 +87,7 @@ fn retrieve_raw_record(
             &[point_id.into()],
             &segment::types::WithPayload::from(true),
             &segment::types::WithVector::Bool(true),
+            segment::data_types::segment_record::RawPayloadFormat::Parsed,
             &hw_counter,
             &is_stopped,
             common::types::DeferredBehavior::WithDeferred,

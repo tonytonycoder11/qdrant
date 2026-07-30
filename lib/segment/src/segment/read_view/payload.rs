@@ -29,6 +29,19 @@ where
             .read_payloads::<P, _>(point_offsets, callback, hw_counter)
     }
 
+    /// Byte-blob analogue of [`Self::read_payloads`]: hands the callback each
+    /// payload in its stored encoding, skipping the parse. `None` for points
+    /// that have no payload stored.
+    pub fn read_payload_bytes<P: AccessPattern, U: common::universal_io::UserData>(
+        &self,
+        point_offsets: impl Iterator<Item = (U, PointOffsetType)>,
+        callback: impl FnMut(U, Option<&[u8]>) -> OperationResult<()>,
+        hw_counter: &HardwareCounterCell,
+    ) -> OperationResult<()> {
+        self.payload_index
+            .read_payload_bytes::<P, _>(point_offsets, callback, hw_counter)
+    }
+
     /// Retrieve payload by internal ID.
     #[inline]
     pub fn payload_by_offset(

@@ -14,7 +14,7 @@ use segment::data_types::facets::{FacetParams, FacetValue};
 use segment::data_types::named_vectors::NamedVectors;
 use segment::data_types::order_by::OrderValue;
 use segment::data_types::query_context::{FormulaContext, QueryContext, SegmentQueryContext};
-use segment::data_types::segment_record::{SegmentRecord, SegmentRecordRaw};
+use segment::data_types::segment_record::{RawPayloadFormat, SegmentRecord, SegmentRecordRaw};
 use segment::data_types::vector_name_config::VectorNameConfig;
 use segment::data_types::vectors::{QueryVector, VectorInternal};
 use segment::entry::StorageSegmentEntry;
@@ -377,6 +377,7 @@ impl ReadSegmentEntry for ProxySegment {
         point_ids: &[PointIdType],
         with_payload: &WithPayload,
         with_vector: &WithVector,
+        payload_format: RawPayloadFormat,
         hw_counter: &HardwareCounterCell,
         is_stopped: &AtomicBool,
         deferred_behavior: DeferredBehavior,
@@ -387,6 +388,7 @@ impl ReadSegmentEntry for ProxySegment {
             &filtered_point_ids,
             with_payload,
             with_vector.as_ref(),
+            payload_format,
             hw_counter,
             is_stopped,
             deferred_behavior,

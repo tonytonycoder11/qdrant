@@ -6,7 +6,7 @@ use ahash::{AHashMap, AHashSet};
 use common::counter::hardware_counter::HardwareCounterCell;
 use common::types::DeferredBehavior;
 use segment::common::operation_error::OperationResult;
-use segment::data_types::segment_record::{SegmentRecord, SegmentRecordRaw};
+use segment::data_types::segment_record::{RawPayloadFormat, SegmentRecord, SegmentRecordRaw};
 use segment::entry::ReadSegmentEntry;
 use segment::types::{PointIdType, SeqNumberType, WithPayload, WithVector};
 
@@ -183,6 +183,8 @@ impl PointToSync for PointStructRawPersisted {
             ids,
             &WithPayload::from(true),
             &WithVector::Bool(true),
+            // Compared against an incoming point, whose payload is parsed.
+            RawPayloadFormat::Parsed,
             hw_counter,
             is_stopped,
             DeferredBehavior::WithDeferred,

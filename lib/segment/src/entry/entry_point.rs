@@ -15,7 +15,7 @@ use crate::data_types::facets::{FacetParams, FacetValue};
 use crate::data_types::named_vectors::NamedVectors;
 use crate::data_types::order_by::{OrderBy, OrderValue};
 use crate::data_types::query_context::{FormulaContext, QueryContext, SegmentQueryContext};
-use crate::data_types::segment_record::{SegmentRecord, SegmentRecordRaw};
+use crate::data_types::segment_record::{RawPayloadFormat, SegmentRecord, SegmentRecordRaw};
 use crate::data_types::vector_name_config::VectorNameConfig;
 use crate::data_types::vectors::{QueryVector, VectorInternal};
 use crate::entry::snapshot_entry::SnapshotEntry;
@@ -104,14 +104,18 @@ pub trait ReadSegmentEntry {
 
     /// Byte-blob analogue of [`ReadSegmentEntry::retrieve`]: returns vectors as
     /// storage-native bytes ([`SegmentRecordRaw`]) to avoid a lossy round-trip
-    /// when relocating points (copy-on-write moves, shard transfer).
+    /// when relocating points (copy-on-write moves, shard transfer). The
+    /// payload is returned parsed or as its stored blob, see
+    /// [`RawPayloadFormat`].
     ///
     /// Like `retrieve`, may return fewer records than requested and in any order.
+    #[allow(clippy::too_many_arguments)]
     fn retrieve_raw(
         &self,
         point_ids: &[PointIdType],
         with_payload: &WithPayload,
         with_vector: &WithVector,
+        payload_format: RawPayloadFormat,
         hw_counter: &HardwareCounterCell,
         is_stopped: &AtomicBool,
         deferred_behavior: DeferredBehavior,

@@ -26,6 +26,7 @@ use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwL
 use rand::seq::IndexedRandom;
 use segment::common::operation_error::{OperationError, OperationResult};
 use segment::data_types::named_vectors::NamedVectors;
+use segment::data_types::segment_record::RawPayloadFormat;
 use segment::entry::{
     NonAppendableSegmentEntry, ReadSegmentEntry, SegmentEntry, StorageSegmentEntry,
 };
@@ -1050,6 +1051,9 @@ impl SegmentHolder {
                                     payload_selector: None,
                                 },
                                 &WithVector::Bool(true),
+                                // The `SetPayload` callback below has to merge
+                                // into the parsed payload anyway.
+                                RawPayloadFormat::Parsed,
                                 hw_counter,
                                 &stopped,
                                 DeferredBehavior::WithDeferred,

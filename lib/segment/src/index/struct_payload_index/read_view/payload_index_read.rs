@@ -301,4 +301,15 @@ where
             .borrow()
             .read_payloads::<AP, _>(point_ids, callback, hw_counter)
     }
+
+    fn read_payload_bytes<AP: AccessPattern, U: common::universal_io::UserData>(
+        &self,
+        point_ids: impl Iterator<Item = (U, PointOffsetType)>,
+        callback: impl FnMut(U, Option<&[u8]>) -> OperationResult<()>,
+        hw_counter: &HardwareCounterCell,
+    ) -> OperationResult<()> {
+        self.payload
+            .borrow()
+            .read_payload_bytes::<AP, _>(point_ids, callback, hw_counter)
+    }
 }

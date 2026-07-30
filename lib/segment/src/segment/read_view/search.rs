@@ -12,7 +12,7 @@ use crate::common::{check_query_vectors, check_stopped};
 use crate::data_types::query_context::{
     IdfScopeStats, QueryContext, QueryIdfStats, SegmentQueryContext,
 };
-use crate::data_types::segment_record::{SegmentRecord, SegmentRecordRaw};
+use crate::data_types::segment_record::{RawPayloadFormat, SegmentRecord, SegmentRecordRaw};
 use crate::data_types::vectors::{QueryVector, VectorStructInternal};
 use crate::id_tracker::IdTrackerRead;
 use crate::index::{PayloadIndexRead, VectorIndexRead};
@@ -20,8 +20,8 @@ use crate::payload_storage::PayloadStorageRead;
 use crate::segment::read_view::SegmentReadView;
 use crate::segment::vector_data_read::VectorDataRead;
 use crate::types::{
-    ExtendedPointId, Filter, Payload, PointIdType, ScoredPoint, SearchParams, VectorName,
-    VectorNameBuf, WithPayload, WithVector,
+    ExtendedPointId, Filter, Payload, PointIdType, RawPayload, ScoredPoint, SearchParams,
+    VectorName, VectorNameBuf, WithPayload, WithVector,
 };
 
 impl<'s, TIdT, TPI, TPS, TVD> SegmentReadView<'s, TIdT, TPI, TPS, TVD>
@@ -98,13 +98,17 @@ where
     }
 
     /// Byte-blob analogue of [`Self::retrieve`]: vectors are read as
-    /// storage-native bytes (`Vec<u8>`) to avoid a lossy round-trip.
+    /// storage-native bytes (`Vec<u8>`) to avoid a lossy round-trip, and the
+    /// payload is read either parsed or as its stored blob, see
+    /// [`RawPayloadFormat`].
     /// The body mirrors [`Self::retrieve`] — keep the two in sync.
+    #[allow(clippy::too_many_arguments)]
     pub fn retrieve_raw(
         &self,
         point_ids: &[PointIdType],
         with_payload: &WithPayload,
         with_vector: &WithVector,
+        payload_format: RawPayloadFormat,
         hw_counter: &HardwareCounterCell,
         is_stopped: &AtomicBool,
         deferred_behavior: DeferredBehavior,
@@ -130,6 +134,7 @@ where
                     id,
                     vectors: with_vector.is_enabled().then(SmallVec::new),
                     payload: None,
+                    payload_raw: None,
                 };
                 (id, record)
             })
@@ -148,16 +153,35 @@ where
             })?;
         }
 
-        let payloads = self.requested_payloads(
-            resolved_ids,
-            resolved_offsets,
-            with_payload,
-            is_stopped,
-            hw_counter,
-        )?;
-        for (id, payload) in payloads {
-            if let Some(record) = records.get_mut(&id) {
-                record.payload = Some(payload);
+        // A payload selector cannot be applied to an opaque blob, so a
+        // selection forces the parsed path.
+        let read_bytes =
+            payload_format == RawPayloadFormat::Bytes && with_payload.payload_selector.is_none();
+        if read_bytes {
+            let payloads = self.requested_payload_bytes(
+                resolved_ids,
+                resolved_offsets,
+                with_payload,
+                is_stopped,
+                hw_counter,
+            )?;
+            for (id, payload_bytes) in payloads {
+                if let Some(record) = records.get_mut(&id) {
+                    record.payload_raw = Some(RawPayload::from_storage_bytes(payload_bytes));
+                }
+            }
+        } else {
+            let payloads = self.requested_payloads(
+                resolved_ids,
+                resolved_offsets,
+                with_payload,
+                is_stopped,
+                hw_counter,
+            )?;
+            for (id, payload) in payloads {
+                if let Some(record) = records.get_mut(&id) {
+                    record.payload = Some(payload);
+                }
             }
         }
 
@@ -208,6 +232,47 @@ where
                 };
 
                 payloads.push((point_id, payload));
+
+                Ok(())
+            },
+            hw_counter,
+        )?;
+
+        Ok(payloads)
+    }
+
+    /// Byte-blob analogue of [`Self::requested_payloads`]: reads each resolved
+    /// point's payload in its stored encoding, without parsing it. Points with
+    /// no stored payload are skipped, so a missing entry means "no payload"
+    /// rather than "empty payload".
+    ///
+    /// Payload selectors are not supported (they need the parsed form); the
+    /// caller must fall back to [`Self::requested_payloads`] for those.
+    fn requested_payload_bytes(
+        &self,
+        resolved_ids: Vec<ExtendedPointId>,
+        resolved_offsets: Vec<PointOffsetType>,
+        with_payload: &WithPayload,
+        is_stopped: &AtomicBool,
+        hw_counter: &HardwareCounterCell,
+    ) -> OperationResult<Vec<(ExtendedPointId, Vec<u8>)>> {
+        debug_assert!(with_payload.payload_selector.is_none());
+
+        if !with_payload.enable {
+            return Ok(Vec::new());
+        }
+
+        let mut payloads = Vec::with_capacity(resolved_ids.len());
+        let point_offsets = resolved_ids.into_iter().zip(resolved_offsets);
+
+        self.read_payload_bytes::<Random, _>(
+            point_offsets,
+            |point_id, payload_bytes| {
+                check_stopped(is_stopped)?;
+
+                if let Some(payload_bytes) = payload_bytes {
+                    payloads.push((point_id, payload_bytes.to_vec()));
+                }
 
                 Ok(())
             },
@@ -426,14 +491,16 @@ mod tests {
 
     use crate::common::operation_error::OperationError;
     use crate::data_types::named_vectors::NamedVectors;
+    use crate::data_types::segment_record::{RawPayloadFormat, SegmentRecordRaw};
     use crate::data_types::vectors::VectorInternal;
     use crate::entry::entry_point::{ReadSegmentEntry as _, SegmentEntry as _};
     use crate::index::sparse_index::sparse_index_config::{SparseIndexConfig, SparseIndexType};
+    use crate::json_path::JsonPath;
     use crate::segment::Segment;
     use crate::segment_constructor::build_segment;
     use crate::types::{
-        Distance, Indexes, Payload, SegmentConfig, SparseVectorDataConfig, SparseVectorStorageType,
-        VectorDataConfig, VectorStorageType, WithPayload, WithVector,
+        Distance, Indexes, Payload, PayloadSelector, SegmentConfig, SparseVectorDataConfig,
+        SparseVectorStorageType, VectorDataConfig, VectorStorageType, WithPayload, WithVector,
     };
     use crate::vector_storage::sparse::StoredSparseVector;
 
@@ -500,6 +567,20 @@ mod tests {
         (segment, payload)
     }
 
+    /// The payload of a raw record in parsed form, whichever of the two
+    /// representations it carries. Empty and absent payloads both read as
+    /// `None`: with [`RawPayloadFormat::Bytes`] a point without payload has no
+    /// stored blob at all, while the parsed path reports it as empty.
+    fn raw_record_payload(record: &SegmentRecordRaw) -> Option<Payload> {
+        let payload = match (&record.payload, &record.payload_raw) {
+            (Some(payload), None) => payload.clone(),
+            (None, Some(raw)) => raw.decode().expect("stored blob must be valid json"),
+            (None, None) => return None,
+            (Some(_), Some(_)) => panic!("a record must carry at most one payload representation"),
+        };
+        (!payload.is_empty()).then_some(payload)
+    }
+
     /// [`SegmentReadView::retrieve`] and [`SegmentReadView::retrieve_raw`]
     /// have hand-duplicated bodies — this guards them against drifting apart:
     /// both must return the same records (ids, payloads, vector names), and
@@ -524,6 +605,8 @@ mod tests {
         #[case] with_vector: WithVector,
         #[case] expected_point1_vectors: usize,
         #[values(true, false)] payload_enabled: bool,
+        #[values(RawPayloadFormat::Parsed, RawPayloadFormat::Bytes)]
+        payload_format: RawPayloadFormat,
     ) {
         let dir = Builder::new().prefix("segment_dir").tempdir().unwrap();
         let (segment, payload) = build_two_point_segment(dir.path());
@@ -558,6 +641,7 @@ mod tests {
                 &point_ids,
                 &with_payload,
                 &with_vector,
+                payload_format,
                 &hw_counter,
                 &is_stopped,
                 DeferredBehavior::VisibleOnly,
@@ -576,14 +660,31 @@ mod tests {
         }
         if payload_enabled {
             assert_eq!(point1.payload.as_ref(), Some(&payload));
+            let raw_point1 = raw_records
+                .get(&1.into())
+                .expect("raw point 1 must be retrieved");
+            assert_eq!(raw_record_payload(raw_point1).as_ref(), Some(&payload));
+            assert_eq!(
+                raw_point1.payload_raw.is_some(),
+                payload_format == RawPayloadFormat::Bytes,
+                "the requested payload format decides which field is filled",
+            );
         }
 
         for (id, record) in &records {
             let raw_record = raw_records.get(id).expect("raw record for the same id");
             assert_eq!(record.id, raw_record.id);
-            assert_eq!(record.payload, raw_record.payload);
+            assert_eq!(
+                record.payload.clone().filter(|payload| !payload.is_empty()),
+                raw_record_payload(raw_record),
+            );
             if !payload_enabled {
                 assert!(record.payload.is_none(), "payload was not requested");
+                assert!(raw_record.payload.is_none(), "payload was not requested");
+                assert!(
+                    raw_record.payload_raw.is_none(),
+                    "payload was not requested"
+                );
             }
 
             if !vectors_requested {
@@ -654,6 +755,7 @@ mod tests {
                 &point_ids,
                 &with_payload,
                 &with_vector,
+                RawPayloadFormat::Parsed,
                 &hw_counter,
                 &is_stopped,
                 DeferredBehavior::VisibleOnly,
@@ -700,6 +802,7 @@ mod tests {
                 &point_ids,
                 &with_payload,
                 &with_vector,
+                RawPayloadFormat::Parsed,
                 &hw_counter,
                 &is_stopped,
                 DeferredBehavior::VisibleOnly,
@@ -748,5 +851,45 @@ mod tests {
             .collect();
         assert_eq!(point2_names, raw_point2_names);
         assert!(point2_names.contains(&&DENSE_NAME.to_owned()));
+    }
+
+    /// A payload selector cannot be applied to an opaque blob, so asking for
+    /// [`RawPayloadFormat::Bytes`] with a selector must fall back to the parsed
+    /// path rather than ship the whole payload.
+    #[test]
+    fn test_retrieve_raw_payload_selector_falls_back_to_parsed() {
+        let dir = Builder::new().prefix("segment_dir").tempdir().unwrap();
+        let (segment, _payload) = build_two_point_segment(dir.path());
+        let hw_counter = HardwareCounterCell::new();
+        let is_stopped = AtomicBool::new(false);
+
+        let with_payload = WithPayload {
+            enable: true,
+            payload_selector: Some(PayloadSelector::new_include(vec![JsonPath::new("city")])),
+        };
+
+        let raw_records = segment
+            .retrieve_raw(
+                &[1.into()],
+                &with_payload,
+                &WithVector::Bool(false),
+                RawPayloadFormat::Bytes,
+                &hw_counter,
+                &is_stopped,
+                DeferredBehavior::VisibleOnly,
+            )
+            .unwrap();
+
+        let record = raw_records
+            .get(&1.into())
+            .expect("point 1 must be retrieved");
+        assert!(
+            record.payload_raw.is_none(),
+            "a selected payload cannot be handed back as a blob",
+        );
+        assert_eq!(
+            record.payload,
+            Some(serde_json::from_str(r#"{"city": "Berlin"}"#).unwrap()),
+        );
     }
 }
